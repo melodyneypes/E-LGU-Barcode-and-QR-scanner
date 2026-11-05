@@ -3,14 +3,14 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // Local development testing server (mapped via `adb reverse tcp:3000 tcp:3000`)
-  static const String defaultBaseUrl = "https://emapandan.vercel.app";
+  // Production Backend URL
+  static const String defaultBaseUrl = "https://emapandan-lgu.vercel.app";
   static const String appKey = "agno-mobile-secret-2024";
 
-  // Supabase Realtime Configuration
-  static const String supabaseUrl = "https://kszhmyfpfcqbyezrgtvl.supabase.co";
+  // Supabase Realtime Configuration (Self-hosted Tailscale / Ubuntu server)
+  static const String supabaseUrl = "https://ubuntuserver1.tail054015.ts.net:8443";
   static const String supabaseAnonKey =
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtzemhteWZwZmNxYnllenJndHZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4ODM4MjMsImV4cCI6MjEwNjQ1OTgyM30.MAaNM76X_xVKziYMllLzd3UBC5SjVNz1yp7bAD5FLOA";
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzkzMjQ4ODY3LCJleHAiOjE5NTA5Mjg4Njd9.bFnrBb1f4tdv2m5CpXDZVfOUF3bD0f5bk6T26uUar0M";
 
   static const String tokenKey = 'kiosk_token';
   static const String cachedThemeKey = 'kiosk_cached_theme_color';

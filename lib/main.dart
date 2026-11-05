@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/api_service.dart';
+import 'services/realtime_service.dart';
 import 'theme/theme_controller.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ThemeController.init();
+  await RealtimeService.instance.initialize();
   final token = await ApiService.getToken();
 
   runApp(FrontdeskScannerApp(hasSavedSession: token != null && token.isNotEmpty));

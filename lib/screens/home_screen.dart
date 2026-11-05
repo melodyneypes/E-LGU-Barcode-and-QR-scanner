@@ -2,8 +2,10 @@ import '../theme/theme_controller.dart';
 import '../theme/app_colors.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
+import '../services/realtime_service.dart';
 import 'login_screen.dart';
 import 'scanner_screen.dart';
 
@@ -47,7 +49,12 @@ class _HomeScreenState extends State<HomeScreen> {
   // Live Clock
   late Timer _clockTimer;
   DateTime _currentTime = DateTime.now();
-  Timer? _pollingTimer;
+
+  // Realtime Subscriptions & Debounce
+  StreamSubscription? _queueRealtimeSub;
+  StreamSubscription? _historyRealtimeSub;
+  StreamSubscription? _connectionStateSub;
+  final Set<String> _recentScannedCodes = {};
 
   @override
   void initState() {
@@ -60,12 +67,59 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     _fetchDashboardData();
-    // Periodic poll every 15s to keep active queue fresh
-    _pollingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      _fetchDashboardData(silent: true);
-    });
+    _initRealtimeListeners();
 
     _historyScrollController.addListener(_onHistoryScroll);
+  }
+
+  void _initRealtimeListeners() {
+    final realtime = RealtimeService.instance;
+
+    // Listen to real-time Transaction changes: instantly sync Active Queue & Dashboard stats (inQueue, served, totalToday)
+    _queueRealtimeSub = realtime.onActiveQueueUpdate.listen((record) {
+      if (!mounted) return;
+      _handleRealtimeQueueUpdate(record);
+    });
+
+    // Listen to real-time Check-In History changes
+    _historyRealtimeSub = realtime.onCheckInHistoryUpdate.listen((record) {
+      if (!mounted) return;
+      _handleRealtimeHistoryUpdate(record);
+    });
+
+    _connectionStateSub = realtime.onConnectionStateChanged.listen((connected) {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  void _handleRealtimeQueueUpdate(Map<String, dynamic> record) {
+    // Sync dashboard stats (totalToday, inQueue, served) and active queue list in real-time
+    _fetchDashboardData(silent: true);
+  }
+
+  void _handleRealtimeHistoryUpdate(Map<String, dynamic> record) {
+    final queueNo = record['queueNumber']?.toString() ?? '';
+    final ticketId = record['id']?.toString() ?? '';
+
+    setState(() {
+      final existingIndex = _historyList.indexWhere((item) {
+        final itemQueue = item['queueNumber']?.toString();
+        final itemId = item['id']?.toString();
+        return (queueNo.isNotEmpty && itemQueue == queueNo) ||
+               (ticketId.isNotEmpty && itemId == ticketId);
+      });
+
+      if (existingIndex >= 0) {
+        _historyList[existingIndex] = {
+          ..._historyList[existingIndex],
+          ...record,
+        };
+      } else {
+        _historyList.insert(0, record);
+        _historyTotalCount++;
+      }
+    });
   }
 
   void _onHistoryScroll() {
@@ -193,7 +247,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _historySearchController.dispose();
     _searchDebounceTimer?.cancel();
     _clockTimer.cancel();
-    _pollingTimer?.cancel();
+    _queueRealtimeSub?.cancel();
+    _historyRealtimeSub?.cancel();
+    _connectionStateSub?.cancel();
     super.dispose();
   }
 
@@ -254,9 +310,104 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => const ScannerScreen()),
     );
     if (scannedCode != null && scannedCode.isNotEmpty) {
-      _processTicketConfirmation(scannedCode);
+      _autoMutateScannedTicket(scannedCode);
     } else {
       _fetchDashboardData(silent: true);
+    }
+  }
+
+  /// Automatically mutates ticket into Queue state immediately upon scanning barcode
+  Future<void> _autoMutateScannedTicket(String rawCode) async {
+    final code = rawCode.trim();
+    if (code.isEmpty) return;
+
+    // 1. Debounce guard: prevent duplicate scans within 3 seconds
+    if (_recentScannedCodes.contains(code)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ticket $code is already being processed!'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    _recentScannedCodes.add(code);
+    Timer(const Duration(seconds: 3), () {
+      _recentScannedCodes.remove(code);
+    });
+
+    // 2. Optimistic UI update: Insert placeholder at top of active queue immediately
+    final optimisticTicket = {
+      'id': 'temp_${DateTime.now().millisecondsSinceEpoch}',
+      'queueNumber': code,
+      'status': 'QUEUEING',
+      'serviceCategory': 'Citizen Check-In',
+      'isPriority': false,
+      'createdAt': DateTime.now().toIso8601String(),
+      '_isOptimistic': true,
+    };
+
+    setState(() {
+      _activeQueue.insert(0, optimisticTicket);
+      _inQueue++;
+    });
+
+    HapticFeedback.mediumImpact();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text('Registering $code into Queue...')),
+          ],
+        ),
+        duration: const Duration(seconds: 2),
+        backgroundColor: _themeColor,
+      ),
+    );
+
+    // 3. Dispatch mutation request to backend immediately
+    final res = await ApiService.checkIn(
+      ticketOrQueueNumber: code,
+      isPriority: false,
+    );
+
+    if (!mounted) return;
+
+    if (res['success'] == true) {
+      final ticketData = res['ticket'] ?? {};
+      HapticFeedback.lightImpact();
+
+      // Authoritative replacement in active queue
+      setState(() {
+        final optIdx = _activeQueue.indexWhere((item) => item['queueNumber'] == code);
+        if (optIdx >= 0) {
+          _activeQueue[optIdx] = {
+            ...ticketData,
+            'status': 'QUEUEING',
+          };
+        }
+      });
+
+      _fetchDashboardData(silent: true);
+      _showResultDialog(code: code, result: res);
+    } else {
+      // Rollback optimistic update on failure
+      HapticFeedback.heavyImpact();
+      setState(() {
+        _activeQueue.removeWhere((item) => item['queueNumber'] == code);
+        if (_inQueue > 0) _inQueue--;
+      });
+
+      _showResultDialog(code: code, result: res);
     }
   }
 
