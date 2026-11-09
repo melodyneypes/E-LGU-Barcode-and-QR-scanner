@@ -67,6 +67,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     _fetchDashboardData();
+    _fetchHistory(); // Eager background pre-fetch: instant display when tab is opened
     _initRealtimeListeners();
 
     _historyScrollController.addListener(_onHistoryScroll);
@@ -131,15 +132,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _fetchHistory({bool refresh = false}) async {
+  Future<void> _fetchHistory({bool refresh = false, bool silent = false}) async {
     if (refresh) {
       setState(() {
         _historyPage = 1;
         _historyHasMore = true;
-        _isHistoryLoading = true;
+        if (!silent) _isHistoryLoading = true;
       });
     } else {
-      setState(() => _isHistoryLoading = true);
+      if (!silent && _historyList.isEmpty) {
+        setState(() => _isHistoryLoading = true);
+      }
     }
 
     final query = _historySearchController.text.trim();
@@ -163,13 +166,15 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     } else {
       setState(() => _isHistoryLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(res['error'] ?? 'Failed to load check-in history'),
-          backgroundColor: const Color(0xFFDC2626),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res['error'] ?? 'Failed to load check-in history'),
+            backgroundColor: const Color(0xFFDC2626),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -1823,19 +1828,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // History List View
           Expanded(
             child: _isHistoryLoading && _historyList.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircularProgressIndicator(color: _themeColor),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Loading check-in history...',
-                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-                        ),
-                      ],
-                    ),
-                  )
+                ? _buildHistorySkeletonList(colors)
                 : RefreshIndicator(
                     onRefresh: () => _fetchHistory(refresh: true),
                     color: _themeColor,
@@ -2105,6 +2098,91 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildHistorySkeletonList(AppThemeColors colors) {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 6,
+      itemBuilder: (context, index) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: colors.cardBg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.cardBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    width: 110,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: colors.chipBg,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  Container(
+                    width: 70,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      color: colors.chipBg,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: 180,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: colors.chipBg,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                width: 140,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: colors.chipBg,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Container(
+                    width: 80,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: colors.chipBg,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Container(
+                    width: 100,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: colors.chipBg,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildAppDrawer() {
     return Drawer(
       backgroundColor: context.colors.drawerBg,
@@ -2251,9 +2329,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   onTap: () {
                     Navigator.pop(context);
                     setState(() => _currentTabIndex = 2);
-                    if (_historyList.isEmpty) {
-                      _fetchHistory(refresh: true);
-                    }
+                    // Silently refresh in background while showing already-cached data
+                    _fetchHistory(refresh: true, silent: true);
                   },
                 ),
               ],

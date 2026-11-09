@@ -1,16 +1,22 @@
 import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // Production Backend URL
-  static const String defaultBaseUrl = "https://emapandan-lgu.vercel.app";
-  static const String appKey = "agno-mobile-secret-2024";
+  // Production Backend URL (Loaded strictly from .env)
+  static String get defaultBaseUrl =>
+      dotenv.env['DEFAULT_BASE_URL'] ?? "";
 
-  // Supabase Realtime Configuration (Self-hosted Tailscale / Ubuntu server)
-  static const String supabaseUrl = "https://ubuntuserver1.tail054015.ts.net:8443";
-  static const String supabaseAnonKey =
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzkzMjQ4ODY3LCJleHAiOjE5NTA5Mjg4Njd9.bFnrBb1f4tdv2m5CpXDZVfOUF3bD0f5bk6T26uUar0M";
+  static String get appKey =>
+      dotenv.env['APP_KEY'] ?? "";
+
+  // Supabase Realtime Configuration (Loaded strictly from .env)
+  static String get supabaseUrl =>
+      dotenv.env['SUPABASE_URL'] ?? "";
+
+  static String get supabaseAnonKey =>
+      dotenv.env['SUPABASE_ANON_KEY'] ?? "";
 
   static const String tokenKey = 'kiosk_token';
   static const String cachedThemeKey = 'kiosk_cached_theme_color';
